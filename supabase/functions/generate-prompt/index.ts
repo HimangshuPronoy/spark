@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 
@@ -18,6 +17,9 @@ serve(async (req) => {
   try {
     const { type, mood, complexity, customPrompt } = await req.json();
 
+    // Log request details for debugging
+    console.log("Request received with params:", { type, mood, complexity, hasCustomPrompt: !!customPrompt });
+
     // Create a prompt for Gemini to generate a creative prompt
     let prompt;
     
@@ -25,14 +27,40 @@ serve(async (req) => {
       // If the user provided a custom prompt, use it directly
       prompt = customPrompt.trim();
     } else {
-      // Otherwise, create a generic prompt based on the parameters
+      // Otherwise, create a dynamic prompt based on the parameters
+      let contextPrefix = "";
+      
+      // Add context based on type
+      if (type === "writing") {
+        contextPrefix = "You are a creative writing coach. ";
+      } else if (type === "art") {
+        contextPrefix = "You are an art director. ";
+      } else if (type === "design") {
+        contextPrefix = "You are a design consultant. ";
+      } else if (type === "music") {
+        contextPrefix = "You are a music producer. ";
+      } else if (type === "coding") {
+        contextPrefix = "You are a software architect. ";
+      } else {
+        contextPrefix = "You are a creative assistant. ";
+      }
+      
       prompt = `
+        ${contextPrefix}
         Generate a creative ${type} prompt with a ${mood} style.
         The complexity level should be ${complexity} out of 5 (where 1 is simple and 5 is complex).
         The prompt should inspire creativity and be specific enough to give clear direction.
         Only return the prompt text with no additional commentary or explanation.
       `;
     }
+
+    // Check if we have an API key
+    if (!GEMINI_API_KEY) {
+      console.error("Missing GEMINI_API_KEY environment variable");
+      throw new Error("API configuration error. Please check the server configuration.");
+    }
+
+    console.log("Sending request to Gemini API...");
 
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", {
       method: "POST",
@@ -57,6 +85,13 @@ serve(async (req) => {
       })
     });
 
+    // Handle non-200 responses
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Gemini API returned ${response.status}: ${errorText}`);
+      throw new Error(`Error from Gemini API: ${response.status}`);
+    }
+
     const data = await response.json();
     
     // Check for errors in the Gemini response
@@ -69,6 +104,7 @@ serve(async (req) => {
     let generatedText = "";
     try {
       generatedText = data.candidates[0].content.parts[0].text.trim();
+      console.log("Successfully generated prompt");
     } catch (e) {
       console.error("Failed to parse Gemini API response:", e);
       console.error("Response data:", JSON.stringify(data));
